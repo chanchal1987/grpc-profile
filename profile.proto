@@ -1,5 +1,5 @@
 syntax = "proto3";
-option go_package = ".;grpc-profile";
+option go_package = ".;profile";
 package profile;
 
 import "google/protobuf/duration.proto";
