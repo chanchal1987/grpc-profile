@@ -1,0 +1,46 @@
+syntax = "proto3";
+option go_package = ".;grpc-profile";
+package profile;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+
+message FileChunk {
+    bytes Content = 1;
+}
+
+enum StatusCode {
+    Unknown = 0;
+    OK = 1;
+    Failed = 2;
+}
+
+message Status {
+    StatusCode Code = 1;
+}
+
+message Rate {
+    int64 Value = 1;
+}
+
+service ProfileService {
+    rpc ClearProfileCache(google.protobuf.Empty) returns (Status) {};
+
+    rpc SetMemProfileRate (Rate) returns (Status) {};
+    rpc SetMutexProfileFraction (Rate) returns (Status) {};
+    rpc SetBlockProfileRate (Rate) returns (Status) {};
+
+    rpc ResetMemProfileRate (google.protobuf.Empty) returns (Status) {};
+    rpc ResetMutexProfileFraction (google.protobuf.Empty) returns (Status) {};
+    rpc ResetBlockProfileRate (google.protobuf.Empty) returns (Status) {};
+
+    rpc CPU(google.protobuf.Duration) returns (Status) {};
+    rpc Memory(google.protobuf.Empty) returns (Status) {};
+    rpc Mutex(google.protobuf.Empty) returns (Status) {};
+    rpc Block(google.protobuf.Empty) returns (Status) {};
+    rpc ThreadCreate(google.protobuf.Empty) returns (Status) {};
+    rpc GoRoutine(google.protobuf.Empty) returns (Status) {};
+
+    rpc Trace(google.protobuf.Duration) returns (stream FileChunk) {};
+    rpc Download(google.protobuf.Empty) returns (stream FileChunk) {};
+}

@@ -12,16 +12,24 @@ ENV DEBIAN_FRONTEND=noninteractive
 # property in devcontainer.json to use it. On Linux, the container user's GID/UIDs
 # will be updated to match your local UID/GID (when using the dockerFile property).
 # See https://aka.ms/vscode-remote/containers/non-root-user for details.
-ARG USERNAME=vscode
+ARG USERNAME=code
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
+ARG PROTOC_ZIP=protoc-3.7.1-linux-x86_64.zip
 
 # Configure apt, install packages and tools
 RUN apt-get update \
     && apt-get -y install --no-install-recommends apt-utils dialog 2>&1 \
     #
     # Verify git, process tools, lsb-release (common in install instructions for CLIs) installed
-    && apt-get -y install git openssh-client less iproute2 procps lsb-release \
+    && apt-get -y install git openssh-client less iproute2 procps lsb-release unzip \
+    # Install Protoc
+    && cd /tmp \
+    && curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v3.7.1/$PROTOC_ZIP \
+    && unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
+    && unzip -o $PROTOC_ZIP -d /usr/local 'include/*' \
+    && rm -f $PROTOC_ZIP \
+    && apt-get purge -y unzip \
     #
     # Build Go tools w/module support
     && mkdir -p /tmp/gotools \
@@ -48,6 +56,8 @@ RUN apt-get update \
         github.com/fatih/gomodifytags@latest  \
         github.com/mgechev/revive@latest  \
         github.com/go-delve/delve/cmd/dlv@latest 2>&1 \
+        github.com/golang/protobuf/protoc-gen-go@latest \
+        google.golang.org/grpc@latest \
     #
     # Build Go tools w/o module support
     && GOPATH=/tmp/gotools go get -v github.com/alecthomas/gometalinter 2>&1 \
