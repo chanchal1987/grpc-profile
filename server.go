@@ -149,7 +149,7 @@ func (server *Server) Serve(address string) error {
 	}
 	server.listen = listen
 
-	err = server.log("Server listening at: ", server.listen.Addr.String())
+	err = server.log("Server listening at: ", server.listen.Addr().String())
 	if err != nil {
 		return err
 	}
