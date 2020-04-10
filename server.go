@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
+	"os"
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
@@ -211,7 +213,27 @@ func (server *Server) Serve(address string) error {
 }
 
 // Stop GRPC Profile server
-func (server *Server) Stop() error {
+func (server *Server) Stop(writeLeftoverProfiles bool) error {
+	if writeLeftoverProfiles && len(server.profiles) > 0 {
+		pwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		tempFile, err := ioutil.TempFile(pwd, "leftover.server.*.pprof")
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = tempFile.Close()
+		}()
+
+		buf, err := server.download()
+		if err != nil {
+			return err
+		}
+
+		tempFile.Write(buf.Bytes())
+	}
 	server.server.Stop()
 	return server.listen.Close()
 }
@@ -435,8 +457,7 @@ func (server *Server) Trace(duration *duration.Duration, stream ProfileService_T
 	return nil
 }
 
-// Download function will send the collected profile data to client
-func (server *Server) Download(_ *empty.Empty, stream ProfileService_DownloadServer) error {
+func (server *Server) download() (*bytes.Buffer, error) {
 	// Stop profiling if not
 	trace.Stop()
 	pprof.StopCPUProfile()
@@ -445,20 +466,30 @@ func (server *Server) Download(_ *empty.Empty, stream ProfileService_DownloadSer
 
 	p, err := profile.Merge(server.profiles)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = p.Write(&buf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	_, err = server.ClearProfileCache(stream.Context(), &empty.Empty{})
+	_, err = server.ClearProfileCache(context.Background(), &empty.Empty{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &buf, nil
+}
+
+// Download function will send the collected profile data to client
+func (server *Server) Download(_ *empty.Empty, stream ProfileService_DownloadServer) error {
+	buf, err := server.download()
 	if err != nil {
 		return err
 	}
 
-	err = sendFileChunk(&buf, stream)
+	err = sendFileChunk(buf, stream)
 	if err != nil {
 		return err
 	}
