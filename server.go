@@ -67,7 +67,7 @@ func (server *Server) err(text string) error {
 	return errors.New("GRPC Profile Server Error: " + text)
 }
 
-func (server Server) collectLookupProfile(ctx context.Context, lookupName string) error {
+func (server *Server) collectLookupProfile(ctx context.Context, lookupName string) error {
 	if prof := pprof.Lookup(lookupName); prof != nil {
 		var buf bytes.Buffer
 		err := prof.WriteTo(&buf, 0)
@@ -86,7 +86,7 @@ func (server Server) collectLookupProfile(ctx context.Context, lookupName string
 	return nil
 }
 
-func (server Server) compatibleProfile(p *profile.Profile) bool {
+func (server *Server) compatibleProfile(p *profile.Profile) bool {
 	if len(server.profiles) == 0 {
 		return true
 	}
