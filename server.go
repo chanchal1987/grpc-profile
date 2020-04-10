@@ -130,6 +130,9 @@ func (server *Server) addProfile(context context.Context, p *profile.Profile) er
 
 // SetGRPCServerOption will set new GRPC Server option to GRPC Profile Server
 func (server *Server) SetGRPCServerOption(grpcServerOption grpc.ServerOption) {
+	if grpcServerOption == nil {
+		return
+	}
 	server.grpcServerOptions = append(server.grpcServerOptions, grpcServerOption)
 }
 

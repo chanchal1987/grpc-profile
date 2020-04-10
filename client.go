@@ -43,11 +43,17 @@ type Client struct {
 
 // SetGRPCCallOption will set new GRPC Call option to GRPC Profile Client
 func (client *Client) SetGRPCCallOption(grpcCallOption grpc.CallOption) {
+	if grpcCallOption == nil {
+		return
+	}
 	client.grpcCallOptions = append(client.grpcCallOptions, grpcCallOption)
 }
 
 // SetGRPCDialOption will set new GRPC Dial option to GRPC Profile Client
 func (client *Client) SetGRPCDialOption(grpcDialOption grpc.DialOption) {
+	if grpcDialOption == nil {
+		return
+	}
 	client.grpcDialOptions = append(client.grpcDialOptions, grpcDialOption)
 }
 
