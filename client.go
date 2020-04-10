@@ -9,6 +9,7 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/empty"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 var errUnknown = errors.New("unknown error")
@@ -50,6 +51,35 @@ func (client *Client) SetGRPCDialOption(grpcDialOption grpc.DialOption) {
 	client.grpcDialOptions = append(client.grpcDialOptions, grpcDialOption)
 }
 
+// AuthTypeDialInsecure will set insecure auth type to grpc client
+func AuthTypeDialInsecure() struct {
+	DialOption grpc.DialOption
+	Error      error
+} {
+	return struct {
+		DialOption grpc.DialOption
+		Error      error
+	}{DialOption: grpc.WithInsecure()}
+}
+
+// AuthTypeDialTLS will set TLS auth type to grpc client
+func AuthTypeDialTLS(certFile string) struct {
+	DialOption grpc.DialOption
+	Error      error
+} {
+	cred, err := credentials.NewClientTLSFromFile(certFile, "")
+	if err != nil {
+		return struct {
+			DialOption grpc.DialOption
+			Error      error
+		}{Error: err}
+	}
+	return struct {
+		DialOption grpc.DialOption
+		Error      error
+	}{DialOption: grpc.WithTransportCredentials(cred)}
+}
+
 // Connect client to GRPC Profile Server
 func (client *Client) Connect(ctx context.Context, serverAddress string) error {
 	conn, err := grpc.Dial(serverAddress, client.grpcDialOptions...)
@@ -63,8 +93,19 @@ func (client *Client) Connect(ctx context.Context, serverAddress string) error {
 }
 
 // NewClient function will create a new GRPC Profile Client instance
-func NewClient(ctx context.Context, serverAddress string, grpcDialOptions ...grpc.DialOption) (*Client, error) {
+func NewClient(ctx context.Context, serverAddress string, authType struct {
+	DialOption grpc.DialOption
+	Error      error
+}, grpcDialOptions ...grpc.DialOption) (*Client, error) {
 	client := Client{}
+
+	// Security
+	if authType.Error != nil {
+		return nil, authType.Error
+	}
+	client.SetGRPCDialOption(authType.DialOption)
+
+	// Other dial options
 	for _, dialOption := range grpcDialOptions {
 		client.SetGRPCDialOption(dialOption)
 	}

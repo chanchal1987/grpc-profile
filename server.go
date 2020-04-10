@@ -17,6 +17,7 @@ import (
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/google/pprof/profile"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -132,13 +133,53 @@ func (server *Server) SetGRPCServerOption(grpcServerOption grpc.ServerOption) {
 	server.grpcServerOptions = append(server.grpcServerOptions, grpcServerOption)
 }
 
+// AuthTypeServerInsecure will set insecure auth type to grpc server
+func AuthTypeServerInsecure() struct {
+	ServerOption grpc.ServerOption
+	Error        error
+} {
+	return struct {
+		ServerOption grpc.ServerOption
+		Error        error
+	}{}
+}
+
+// AuthTypeServerTLS will set TLS auth type to grpc server
+func AuthTypeServerTLS(certFile, keyFile string) struct {
+	ServerOption grpc.ServerOption
+	Error        error
+} {
+	cred, err := credentials.NewServerTLSFromFile(certFile, keyFile)
+	if err != nil {
+		return struct {
+			ServerOption grpc.ServerOption
+			Error        error
+		}{Error: err}
+	}
+	return struct {
+		ServerOption grpc.ServerOption
+		Error        error
+	}{ServerOption: grpc.Creds(cred)}
+}
+
 // NewServer method will create a new GRPC Profile Server instance
-func NewServer(logger io.Writer, grpcServerOptions ...grpc.ServerOption) *Server {
+func NewServer(logger io.Writer, authType struct {
+	ServerOption grpc.ServerOption
+	Error        error
+}, grpcServerOptions ...grpc.ServerOption) (*Server, error) {
 	server := Server{Logger: logger}
+
+	// Security
+	if authType.Error != nil {
+		return nil, authType.Error
+	}
+	server.SetGRPCServerOption(authType.ServerOption)
+
+	// Other dial options
 	for _, serverOption := range grpcServerOptions {
 		server.SetGRPCServerOption(serverOption)
 	}
-	return &server
+	return &server, nil
 }
 
 // Serve the GRPC Profile server
