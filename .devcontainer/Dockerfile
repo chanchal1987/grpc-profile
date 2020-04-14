@@ -76,6 +76,15 @@ RUN apt-get update \
     # Create a non-root user to use if preferred - see https://aka.ms/vscode-remote/containers/non-root-user.
     && groupadd --gid $USER_GID $USERNAME \
     && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    # Setup github fingerprint
+    && ( \
+      h=`getent passwd $USERNAME | cut -d: -f6` \
+      && mkdir $h/.ssh \
+      && ssh-keyscan -H github.com >> $h/.ssh/known_hosts \
+      && chown -R $USERNAME:$USERNAME $h/.ssh \
+      && chmod 700 $h/.ssh \
+      && chmod 644 $h/.ssh/known_hosts \
+    ) \
     # [Optional] Add sudo support
     && apt-get install -y sudo \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
