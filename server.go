@@ -232,7 +232,10 @@ func (server *Server) Stop(writeLeftoverProfiles bool) error {
 			return err
 		}
 
-		tempFile.Write(buf.Bytes())
+		_, err = tempFile.Write(buf.Bytes())
+		if err != nil {
+			return err
+		}
 	}
 	server.server.Stop()
 	return server.listen.Close()
@@ -308,7 +311,7 @@ func (server *Server) CPU(ctx context.Context, duration *duration.Duration) (*St
 		return &Status{Code: StatusCode_Failed}, err
 	}
 
-	endChan := time.After(d - time.Now().Sub(startTime))
+	endChan := time.After(d - time.Since(startTime))
 
 	select {
 	case <-endChan:
@@ -425,7 +428,7 @@ func (server *Server) Trace(duration *duration.Duration, stream ProfileService_T
 		return err
 	}
 
-	endChan := time.After(d - time.Now().Sub(startTime))
+	endChan := time.After(d - time.Since(startTime))
 
 	select {
 	case <-endChan:

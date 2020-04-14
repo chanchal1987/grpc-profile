@@ -8,14 +8,19 @@
 	// Set *default* container specific settings.json values on container create.
 	"settings": { 
 		"terminal.integrated.shell.linux": "/bin/bash",
-		"go.gopath": "/go"
+		"go.gopath": "/go",
+		"go.lintTool": "golangci-lint",
+		"go.lintFlags": [
+			"--fast"
+		]
 	},
 	
 	// Add the IDs of extensions you want installed when the container is created.
 	"extensions": [
 		"ms-vscode.go",
 		"zxh404.vscode-proto3",
-		"eamodio.gitlens"
+		"eamodio.gitlens",
+		"github.vscode-pull-request-github"
 	],
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
