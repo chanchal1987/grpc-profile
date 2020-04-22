@@ -22,6 +22,7 @@ func receiveFileChunk(writer io.Writer, stream interface {
 		fc, err = stream.Recv()
 		if err != nil {
 			if err == io.EOF {
+				err = nil
 				break
 			} else {
 				return

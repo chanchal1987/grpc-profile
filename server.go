@@ -110,7 +110,7 @@ func (server *Server) initVariables() error {
 	}
 
 	if server.initVariable == nil {
-		server.variable = make(map[proto.ProfileVariable]int)
+		server.initVariable = make(map[proto.ProfileVariable]int)
 	}
 
 	server.initVariable[proto.ProfileVariable_MemProfileRate] = runtime.MemProfileRate

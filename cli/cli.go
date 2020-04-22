@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -63,7 +64,7 @@ var nonLookupClientMap = map[string]profile.NonLookupType{
 	"Trace": profile.TraceType,
 }
 
-func commandConnect(ctx context.Context, conn connectionStatus, err error) *ishell.Cmd {
+func commandConnect(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "connect",
 		Aliases:  []string{"c"},
@@ -86,7 +87,7 @@ func commandConnect(ctx context.Context, conn connectionStatus, err error) *ishe
 	}
 }
 
-func commandSet(ctx context.Context, conn connectionStatus, err error) *ishell.Cmd {
+func commandSet(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "set",
 		Aliases:  []string{"s"},
@@ -137,7 +138,7 @@ func commandSet(ctx context.Context, conn connectionStatus, err error) *ishell.C
 	}
 }
 
-func commandReset(ctx context.Context, conn connectionStatus, err error) *ishell.Cmd {
+func commandReset(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "reset",
 		Aliases:  []string{"r"},
@@ -177,7 +178,7 @@ func commandReset(ctx context.Context, conn connectionStatus, err error) *ishell
 	}
 }
 
-func commandProfile(ctx context.Context, conn connectionStatus, err error) *ishell.Cmd {
+func commandProfile(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "profile",
 		Aliases:  []string{"p"},
@@ -243,6 +244,53 @@ func commandProfile(ctx context.Context, conn connectionStatus, err error) *ishe
 	}
 }
 
+func commandDummyServer(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
+	return &ishell.Cmd{
+		Name:     "dummy-server",
+		Help:     "Run dummy server for testing",
+		LongHelp: "Run dummy server for testing",
+		Func: func(c *ishell.Context) {
+			server, err := profile.NewServer()
+			if err != nil {
+				c.Err(err)
+				return
+			}
+
+			go func(server *profile.Server) {
+				done := make(chan bool)
+				defer func() {
+					c.Println("Dummy server is stopping...")
+					err = server.Stop()
+					if err != nil {
+						c.Err(err)
+					}
+				}()
+				for i := 0; i < runtime.NumCPU(); i++ {
+					go func() {
+						for {
+							select {
+							case <-done:
+								return
+							default:
+								continue
+							}
+						}
+					}()
+				}
+				<-ctx.Done()
+				close(done)
+			}(server)
+
+			addr, err := server.Start("")
+			if err != nil {
+				c.Err(err)
+				return
+			}
+			c.Printf("Dummy server listening at: %v\n", addr)
+		},
+	}
+}
+
 func main() {
 	var conn connectionStatus
 	var err error
@@ -252,10 +300,11 @@ func main() {
 	shell.SetPrompt("gprof >> ")
 	shell.Println("GRPC Profile Interactive Shell")
 
-	shell.AddCmd(commandConnect(ctx, conn, err))
-	shell.AddCmd(commandSet(ctx, conn, err))
-	shell.AddCmd(commandReset(ctx, conn, err))
-	shell.AddCmd(commandProfile(ctx, conn, err))
+	shell.AddCmd(commandConnect(ctx, &conn, err))
+	shell.AddCmd(commandSet(ctx, &conn, err))
+	shell.AddCmd(commandReset(ctx, &conn, err))
+	shell.AddCmd(commandProfile(ctx, &conn, err))
+	shell.AddCmd(commandDummyServer(ctx, &conn, err))
 
 	shell.Run()
 
