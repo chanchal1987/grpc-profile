@@ -28,6 +28,11 @@ func (status *connectionStatus) Connect(ctx context.Context, serverAddress strin
 	return nil
 }
 
+func (status *connectionStatus) Close() error {
+	status.Connected = false
+	return status.client.Stop()
+}
+
 func contains(s []string, e string) bool {
 	for _, a := range s {
 		if a == e {
@@ -37,37 +42,29 @@ func contains(s []string, e string) bool {
 	return false
 }
 
-func main() {
-	var conn connectionStatus
-	var err error
-	ctx := context.Background()
+var profVars = []string{"MemProfileRate", "MutexProfileFraction", "BlockProfileRate"}
+var profTypes = []string{"Heap", "Mutex", "Block", "ThreadCreate", "GoRoutine", "CPU", "Trace"}
+var nonLookupTypes = []string{"CPU", "Trace"}
 
-	profVars := []string{"MemProfileRate", "MutexProfileFraction", "BlockProfileRate"}
-	profTypes := []string{"Heap", "Mutex", "Block", "ThreadCreate", "GoRoutine", "CPU", "Trace"}
-	nonLookupTypes := []string{"CPU", "Trace"}
+var variableMap = map[string]profile.Variable{
+	"MemProfileRate":       profile.MemProfRate,
+	"MutexProfileFraction": profile.MutexProfileFraction,
+	"BlockProfileRate":     profile.BlockProfileRate,
+}
+var lookupClientMap = map[string]profile.LookupType{
+	"Heap":         profile.HeapType,
+	"Mutex":        profile.MutexType,
+	"Block":        profile.BlockType,
+	"ThreadCreate": profile.ThreadCreateType,
+	"GoRoutine":    profile.GoRoutineType,
+}
+var nonLookupClientMap = map[string]profile.NonLookupType{
+	"CPU":   profile.CPUType,
+	"Trace": profile.TraceType,
+}
 
-	variableMap := map[string]profile.Variable{
-		"MemProfileRate":       profile.MemProfRate,
-		"MutexProfileFraction": profile.MutexProfileFraction,
-		"BlockProfileRate":     profile.BlockProfileRate,
-	}
-	lookupClientMap := map[string]profile.LookupType{
-		"Heap":         profile.HeapType,
-		"Mutex":        profile.MutexType,
-		"Block":        profile.BlockType,
-		"ThreadCreate": profile.ThreadCreateType,
-		"GoRoutine":    profile.GoRoutineType,
-	}
-	nonLookupClientMap := map[string]profile.NonLookupType{
-		"CPU":   profile.CPUType,
-		"Trace": profile.TraceType,
-	}
-
-	shell := ishell.New()
-	shell.SetPrompt("gprof >> ")
-	shell.Println("GRPC Profile Interactive Shell")
-
-	shell.AddCmd(&ishell.Cmd{
+func commandConnect(conn connectionStatus, err error, ctx context.Context) *ishell.Cmd {
+	return &ishell.Cmd{
 		Name:     "connect",
 		Aliases:  []string{"c"},
 		Help:     "Connect to a remote server",
@@ -86,9 +83,11 @@ func main() {
 				c.Err(err)
 			}
 		},
-	})
+	}
+}
 
-	shell.AddCmd(&ishell.Cmd{
+func commandSet(conn connectionStatus, err error, ctx context.Context) *ishell.Cmd {
+	return &ishell.Cmd{
 		Name:     "set",
 		Aliases:  []string{"s"},
 		Help:     "Set GRPC Profile variable in remote server",
@@ -135,9 +134,11 @@ func main() {
 			}
 			return nil
 		},
-	})
+	}
+}
 
-	shell.AddCmd(&ishell.Cmd{
+func commandReset(conn connectionStatus, err error, ctx context.Context) *ishell.Cmd {
+	return &ishell.Cmd{
 		Name:     "reset",
 		Aliases:  []string{"r"},
 		Help:     "Reset GRPC Profile variable in remote server",
@@ -173,9 +174,11 @@ func main() {
 			}
 			return nil
 		},
-	})
+	}
+}
 
-	shell.AddCmd(&ishell.Cmd{
+func commandProfile(conn connectionStatus, err error, ctx context.Context) *ishell.Cmd {
+	return &ishell.Cmd{
 		Name:     "profile",
 		Aliases:  []string{"p"},
 		Help:     "Collect pprof from remote server",
@@ -237,7 +240,26 @@ func main() {
 			}
 			return nil
 		},
-	})
+	}
+}
+
+func main() {
+	var conn connectionStatus
+	var err error
+	ctx := context.Background()
+
+	shell := ishell.New()
+	shell.SetPrompt("gprof >> ")
+	shell.Println("GRPC Profile Interactive Shell")
+
+	shell.AddCmd(commandConnect(conn, err, ctx))
+	shell.AddCmd(commandSet(conn, err, ctx))
+	shell.AddCmd(commandReset(conn, err, ctx))
+	shell.AddCmd(commandProfile(conn, err, ctx))
 
 	shell.Run()
+
+	if conn.Connected {
+		conn.Close()
+	}
 }

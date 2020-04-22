@@ -1,5 +1,6 @@
-//go:generate protoc -I proto/ proto/profile.proto --go_out=plugins=grpc:proto
 package profile
+
+//go:generate protoc -I proto/ proto/profile.proto --go_out=plugins=grpc:proto
 
 import (
 	"bytes"
@@ -32,6 +33,7 @@ var lookupStr = map[proto.LookupProfile]string{
 	proto.LookupProfile_profileTypeGoRoutine:    "goroutine",
 }
 
+// Server will store GRPC Profile Server instance. We can create a instance of the server using `NewServer()` function
 type Server struct {
 	lookupProfile    map[proto.LookupProfile]*profile.Profile
 	nonLookupProfile map[proto.NonLookupProfile]*profile.Profile
@@ -44,6 +46,7 @@ type Server struct {
 	serverOptions    []grpc.ServerOption
 }
 
+// NewServer function will create a GRPC Profile Server instance
 func NewServer(options ...*ServerOption) (server *Server, err error) {
 	err = server.SetOptions(options...)
 	if err != nil {
@@ -53,6 +56,7 @@ func NewServer(options ...*ServerOption) (server *Server, err error) {
 	return
 }
 
+// Start function will start GRPC Profile Server
 func (server *Server) Start(serverAddress string) (addr *net.TCPAddr, err error) {
 	server.listen, err = net.Listen("tcp", serverAddress)
 	if err != nil {
@@ -70,11 +74,13 @@ func (server *Server) Start(serverAddress string) (addr *net.TCPAddr, err error)
 	return
 }
 
+// Stop function will stop GRPC Profile Server
 func (server *Server) Stop() error {
 	server.server.Stop()
 	return server.listen.Close()
 }
 
+// SetOption function will be used to set `ServerOption` to GRPC Profile Server
 func (server *Server) SetOption(option *ServerOption) error {
 	if option == nil {
 		return nil
@@ -86,6 +92,7 @@ func (server *Server) SetOption(option *ServerOption) error {
 	return nil
 }
 
+// SetOptions function will be used to set `ServerOption`s to GRPC Profile Server
 func (server *Server) SetOptions(options ...*ServerOption) (err error) {
 	for _, option := range options {
 		err = server.SetOptions(option)
@@ -117,15 +124,18 @@ func (server *Server) initVariables() error {
 	return nil
 }
 
+// ServerOption will create a Option for the GRPC Profile Server
 type ServerOption struct {
 	option grpc.ServerOption
 	error  error
 }
 
+// ServerAuthTypeInsecure function will create a Insecure Auth type GRPC Profile Server option
 func ServerAuthTypeInsecure() *ServerOption {
 	return nil
 }
 
+// ServerAuthTypeTLS function will create a TLS Secure Auth type GRPC Profile Server option
 func ServerAuthTypeTLS(certFile, keyFile string) *ServerOption {
 	cred, err := credentials.NewServerTLSFromFile(certFile, keyFile)
 	if err != nil {
@@ -149,16 +159,20 @@ func (w *grpcStreamWriter) Write(bytes []byte) (n int, err error) {
 	return
 }
 
+// Ping function will be used to test the connectivity to the server from client.
+// This function will always return a response contains the word "pong"
 func (server *Server) Ping(context.Context, *empty.Empty) (*proto.StringType, error) {
 	return &proto.StringType{Message: "pong"}, nil
 }
 
+// ClearProfileCache function will clear all saved profiles in the GRPC Profile Server
 func (server *Server) ClearProfileCache(_ context.Context, _ *empty.Empty) (*empty.Empty, error) {
 	server.lookupProfile = nil
 	server.nonLookupProfile = nil
 	return &empty.Empty{}, nil
 }
 
+// Set function will set the GRPC Profile Variable
 func (server *Server) Set(_ context.Context, inputType *proto.SetProfileInputType) (*empty.Empty, error) {
 	if !server.initializedVars {
 		return &empty.Empty{}, status.Error(codes.FailedPrecondition, "variables are not initialized yet")
@@ -176,6 +190,7 @@ func (server *Server) Set(_ context.Context, inputType *proto.SetProfileInputTyp
 	return &empty.Empty{}, nil
 }
 
+// Reset function will reset the GRPC Profile Variable to its original value
 func (server *Server) Reset(_ context.Context, inputType *proto.ResetProfileInputType) (*empty.Empty, error) {
 	if !server.initializedVars {
 		return &empty.Empty{}, status.Error(codes.FailedPrecondition, "variables are not initialized yet")
@@ -194,6 +209,7 @@ func (server *Server) Reset(_ context.Context, inputType *proto.ResetProfileInpu
 	return &empty.Empty{}, nil
 }
 
+// LookupProfile will run a profile for lookup pprof type
 func (server *Server) LookupProfile(inputType *proto.LookupProfileInputType, profileServer proto.ProfileService_LookupProfileServer) (err error) {
 	prof := pprof.Lookup(lookupStr[inputType.ProfileType])
 	if prof == nil {
@@ -235,6 +251,7 @@ func (server *Server) LookupProfile(inputType *proto.LookupProfileInputType, pro
 	return
 }
 
+// DownloadLookupProfile will download a lookup profile type storred in GRPC Profile Server
 func (server *Server) DownloadLookupProfile(profileType *proto.LookupProfileType, profileServer proto.ProfileService_DownloadLookupProfileServer) error {
 	var ok bool
 	var prof *profile.Profile
@@ -276,6 +293,7 @@ func (server *Server) runNonLookup(ctx context.Context, startFunc func(io.Writer
 	return nil
 }
 
+// NonLookupProfile will run a profile for non lookup pprof type
 func (server *Server) NonLookupProfile(inputType *proto.NonLookupProfileInputType, profileServer proto.ProfileService_NonLookupProfileServer) error {
 	var startFunc func(io.Writer) error
 	var stopFunc func()
@@ -333,6 +351,7 @@ func (server *Server) NonLookupProfile(inputType *proto.NonLookupProfileInputTyp
 	return nil
 }
 
+// StopNonLookupProfile will stop non lookup profile type (if running)
 func (server *Server) StopNonLookupProfile(_ context.Context, profileType *proto.NonLookupProfileType) (*empty.Empty, error) {
 	switch profileType.Profile {
 	case proto.NonLookupProfile_profileTypeCPU:
@@ -345,6 +364,7 @@ func (server *Server) StopNonLookupProfile(_ context.Context, profileType *proto
 	return &empty.Empty{}, nil
 }
 
+// DownloadNonLookupProfile will download a non lookup profile type storred in GRPC Profile Server
 func (server *Server) DownloadNonLookupProfile(profileType *proto.NonLookupProfileType, profileServer proto.ProfileService_DownloadNonLookupProfileServer) error {
 	var ok bool
 	var prof *profile.Profile
