@@ -63,7 +63,7 @@ var nonLookupClientMap = map[string]profile.NonLookupType{
 	"Trace": profile.TraceType,
 }
 
-func commandConnect(conn connectionStatus, err error, ctx context.Context) *ishell.Cmd {
+func commandConnect(ctx context.Context, conn connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "connect",
 		Aliases:  []string{"c"},
@@ -86,7 +86,7 @@ func commandConnect(conn connectionStatus, err error, ctx context.Context) *ishe
 	}
 }
 
-func commandSet(conn connectionStatus, err error, ctx context.Context) *ishell.Cmd {
+func commandSet(ctx context.Context, conn connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "set",
 		Aliases:  []string{"s"},
@@ -137,7 +137,7 @@ func commandSet(conn connectionStatus, err error, ctx context.Context) *ishell.C
 	}
 }
 
-func commandReset(conn connectionStatus, err error, ctx context.Context) *ishell.Cmd {
+func commandReset(ctx context.Context, conn connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "reset",
 		Aliases:  []string{"r"},
@@ -177,7 +177,7 @@ func commandReset(conn connectionStatus, err error, ctx context.Context) *ishell
 	}
 }
 
-func commandProfile(conn connectionStatus, err error, ctx context.Context) *ishell.Cmd {
+func commandProfile(ctx context.Context, conn connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "profile",
 		Aliases:  []string{"p"},
@@ -252,10 +252,10 @@ func main() {
 	shell.SetPrompt("gprof >> ")
 	shell.Println("GRPC Profile Interactive Shell")
 
-	shell.AddCmd(commandConnect(conn, err, ctx))
-	shell.AddCmd(commandSet(conn, err, ctx))
-	shell.AddCmd(commandReset(conn, err, ctx))
-	shell.AddCmd(commandProfile(conn, err, ctx))
+	shell.AddCmd(commandConnect(ctx, conn, err))
+	shell.AddCmd(commandSet(ctx, conn, err))
+	shell.AddCmd(commandReset(ctx, conn, err))
+	shell.AddCmd(commandProfile(ctx, conn, err))
 
 	shell.Run()
 
