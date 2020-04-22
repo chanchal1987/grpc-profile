@@ -6,305 +6,228 @@ import (
 	"io"
 	"time"
 
+	"github.com/chanchal1987/grpc-profile/proto"
 	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/empty"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-var errUnknown = errors.New("unknown error")
+func receiveFileChunk(writer io.Writer, stream interface {
+	Recv() (*proto.FileChunk, error)
+}) (err error) {
+	var fc *proto.FileChunk
 
-func receiveFileChunk(writer io.Writer, stream interface{ Recv() (*FileChunk, error) }) error {
 	for {
-		fc, err := stream.Recv()
+		fc, err = stream.Recv()
 		if err != nil {
 			if err == io.EOF {
 				break
 			} else {
-				return err
+				return
 			}
 		}
 		_, err = writer.Write(fc.Content)
 		if err != nil {
-			return err
+			return
 		}
 	}
+	return
+}
+
+type Variable int
+type LookupType int
+type NonLookupType int
+
+const (
+	MemProfRate Variable = iota
+	MutexProfileFraction
+	BlockProfileRate
+)
+const (
+	HeapType LookupType = iota
+	MutexType
+	BlockType
+	ThreadCreateType
+	GoRoutineType
+)
+const (
+	CPUType NonLookupType = iota
+	TraceType
+)
+
+var lookupVariable = map[Variable]proto.ProfileVariable{
+	MemProfRate:          proto.ProfileVariable_MemProfileRate,
+	MutexProfileFraction: proto.ProfileVariable_MutexProfileFraction,
+	BlockProfileRate:     proto.ProfileVariable_BlockProfileRate,
+}
+var lookupLookupType = map[LookupType]proto.LookupProfile{
+	HeapType:         proto.LookupProfile_profileTypeHeap,
+	MutexType:        proto.LookupProfile_profileTypeMutex,
+	BlockType:        proto.LookupProfile_profileTypeBlock,
+	ThreadCreateType: proto.LookupProfile_profileTypeThreadCreate,
+	GoRoutineType:    proto.LookupProfile_profileTypeGoRoutine,
+}
+var lookupNonLookupType = map[NonLookupType]proto.NonLookupProfile{
+	CPUType:   proto.NonLookupProfile_profileTypeCPU,
+	TraceType: proto.NonLookupProfile_profileTypeTrace,
+}
+
+type Client struct {
+	client      proto.ProfileServiceClient
+	conn        *grpc.ClientConn
+	ctx         context.Context
+	callOptions []grpc.CallOption
+	dialOptions []grpc.DialOption
+}
+
+type DialOption struct {
+	option grpc.DialOption
+	error  error
+}
+
+type CallOption struct {
+	option grpc.CallOption
+	error  error
+}
+
+func (client *Client) SetDialOption(option *DialOption) error {
+	if option == nil {
+		return nil
+	}
+	if option.error != nil {
+		return option.error
+	}
+	client.dialOptions = append(client.dialOptions, option.option)
 	return nil
 }
 
-// Client will start the grpc-profile client
-type Client struct {
-	client          ProfileServiceClient
-	conn            *grpc.ClientConn
-	ctx             context.Context
-	grpcCallOptions []grpc.CallOption
-	grpcDialOptions []grpc.DialOption
-}
-
-// SetGRPCCallOption will set new GRPC Call option to GRPC Profile Client
-func (client *Client) SetGRPCCallOption(grpcCallOption grpc.CallOption) {
-	if grpcCallOption == nil {
-		return
+func (client *Client) SetDialOptions(options ...*DialOption) (err error) {
+	for _, option := range options {
+		err = client.SetDialOption(option)
+		if err != nil {
+			return
+		}
 	}
-	client.grpcCallOptions = append(client.grpcCallOptions, grpcCallOption)
+	return
 }
 
-// SetGRPCDialOption will set new GRPC Dial option to GRPC Profile Client
-func (client *Client) SetGRPCDialOption(grpcDialOption grpc.DialOption) {
-	if grpcDialOption == nil {
-		return
+func (client *Client) SetCallOption(option *CallOption) error {
+	if option == nil {
+		return nil
 	}
-	client.grpcDialOptions = append(client.grpcDialOptions, grpcDialOption)
+	if option.error != nil {
+		return option.error
+	}
+	client.callOptions = append(client.callOptions, option.option)
+	return nil
 }
 
-// AuthTypeDialInsecure will set insecure auth type to grpc client
-func AuthTypeDialInsecure() struct {
-	DialOption grpc.DialOption
-	Error      error
-} {
-	return struct {
-		DialOption grpc.DialOption
-		Error      error
-	}{DialOption: grpc.WithInsecure()}
+func (client *Client) SetCallOptions(options ...*CallOption) (err error) {
+	for _, option := range options {
+		err = client.SetCallOption(option)
+		if err != nil {
+			return
+		}
+	}
+	return
 }
 
-// AuthTypeDialTLS will set TLS auth type to grpc client
-func AuthTypeDialTLS(certFile string) struct {
-	DialOption grpc.DialOption
-	Error      error
-} {
+func DialAuthTypeInsecure() *DialOption {
+	return &DialOption{option: grpc.WithInsecure()}
+}
+
+func DialAuthTypeTLS(certFile string) *DialOption {
 	cred, err := credentials.NewClientTLSFromFile(certFile, "")
 	if err != nil {
-		return struct {
-			DialOption grpc.DialOption
-			Error      error
-		}{Error: err}
+		return &DialOption{error: err}
 	}
-	return struct {
-		DialOption grpc.DialOption
-		Error      error
-	}{DialOption: grpc.WithTransportCredentials(cred)}
+	return &DialOption{option: grpc.WithTransportCredentials(cred)}
 }
 
-// Connect client to GRPC Profile Server
+func NewClient(ctx context.Context, serverAddress string, options ...*DialOption) (client *Client, err error) {
+	_ = client.SetDialOption(DialAuthTypeInsecure()) // Default insecure security
+
+	err = client.SetDialOptions(options...)
+	if err != nil {
+		return
+	}
+
+	err = client.Connect(ctx, serverAddress)
+	return
+}
+
 func (client *Client) Connect(ctx context.Context, serverAddress string) error {
-	conn, err := grpc.Dial(serverAddress, client.grpcDialOptions...)
+	conn, err := grpc.Dial(serverAddress, client.dialOptions...)
 	if err != nil {
 		return err
 	}
-	client.conn = conn
-	client.client = NewProfileServiceClient(client.conn)
 	client.ctx = ctx
+	client.conn = conn
+	client.client = proto.NewProfileServiceClient(client.conn)
+
+	repl, err := client.client.Ping(ctx, &emptypb.Empty{}, client.callOptions...)
+	if err != nil {
+		return err
+	}
+	if repl.Message != "pong" {
+		return errors.New("unknown error")
+	}
 	return nil
 }
 
-// NewClient function will create a new GRPC Profile Client instance
-func NewClient(ctx context.Context, serverAddress string, authType struct {
-	DialOption grpc.DialOption
-	Error      error
-}, grpcDialOptions ...grpc.DialOption) (*Client, error) {
-	client := Client{}
-
-	// Security
-	if authType.Error != nil {
-		return nil, authType.Error
-	}
-	client.SetGRPCDialOption(authType.DialOption)
-
-	// Other dial options
-	for _, dialOption := range grpcDialOptions {
-		client.SetGRPCDialOption(dialOption)
-	}
-	err := client.Connect(ctx, serverAddress)
-	if err != nil {
-		return nil, err
-	}
-	return &client, nil
-}
-
-// Stop function will stop GRPC Profile Client instance
 func (client *Client) Stop() error {
 	return client.conn.Close()
 }
 
-// ClearProfileCache will clear cached profiles in server
-func (client *Client) ClearProfileCache(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.ClearProfileCache(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
+func (client *Client) ClearProfileCache(ctx context.Context) (err error) {
+	_, err = client.client.ClearProfileCache(ctx, &emptypb.Empty{}, client.callOptions...)
+	return
 }
 
-// SetMemProfileRate will set memory profile rate in server
-func (client *Client) SetMemProfileRate(rate int, grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.SetMemProfileRate(client.ctx, &Rate{Value: int64(rate)}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
+func (client *Client) Set(ctx context.Context, v Variable, r int) (err error) {
+	_, err = client.client.Set(ctx, &proto.SetProfileInputType{Variable: lookupVariable[v], Rate: int32(r)}, client.callOptions...)
+	return
 }
 
-// SetMutexProfileFraction will set mutex profile fraction in server
-func (client *Client) SetMutexProfileFraction(rate int, grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.SetMutexProfileFraction(client.ctx, &Rate{Value: int64(rate)}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
+func (client *Client) Reset(ctx context.Context, v Variable) (err error) {
+	_, err = client.client.Reset(ctx, &proto.ResetProfileInputType{Variable: lookupVariable[v]}, client.callOptions...)
+	return
 }
 
-// SetBlockProfileRate will set block profile rate in server
-func (client *Client) SetBlockProfileRate(rate int, grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.SetBlockProfileRate(client.ctx, &Rate{Value: int64(rate)}, append(client.grpcCallOptions, grpcCallOption...)...)
+func (client *Client) LookupProfile(ctx context.Context, t LookupType, writer io.Writer, keep bool) error {
+	stream, err := client.client.LookupProfile(ctx, &proto.LookupProfileInputType{ProfileType: lookupLookupType[t], Keep: keep}, client.callOptions...)
 	if err != nil {
 		return err
 	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
+	return receiveFileChunk(writer, stream)
 }
 
-// ResetMemProfileRate will set the memory profile rate to default value in server
-func (client *Client) ResetMemProfileRate(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.ResetMemProfileRate(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
+func (client *Client) DownloadLookupProfile(ctx context.Context, t LookupType, writer io.Writer) error {
+	stream, err := client.client.DownloadLookupProfile(ctx, &proto.LookupProfileType{Profile: lookupLookupType[t]}, client.callOptions...)
 	if err != nil {
 		return err
 	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
+	return receiveFileChunk(writer, stream)
 }
 
-// ResetMutexProfileFraction will set the mutex profile fraction to default value in server
-func (client *Client) ResetMutexProfileFraction(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.ResetMutexProfileFraction(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
+func (client *Client) NonLookupProfile(ctx context.Context, t NonLookupType, d time.Duration, writer io.Writer, wait, keep bool) error {
+	stream, err := client.client.NonLookupProfile(ctx, &proto.NonLookupProfileInputType{ProfileType: lookupNonLookupType[t], Duration: ptypes.DurationProto(d), WaitForCompletion: wait, Keep: keep}, client.callOptions...)
 	if err != nil {
 		return err
 	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
+	return receiveFileChunk(writer, stream)
 }
 
-// ResetBlockProfileRate will set the block profile rate to default value in server
-func (client *Client) ResetBlockProfileRate(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.ResetBlockProfileRate(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
+func (client *Client) StopNonLookupProfile(ctx context.Context, t NonLookupType) (err error) {
+	_, err = client.client.StopNonLookupProfile(ctx, &proto.NonLookupProfileType{Profile: lookupNonLookupType[t]}, client.callOptions...)
+	return
 }
 
-// CPU function will collect CPU profile in server
-func (client *Client) CPU(duration time.Duration, grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.CPU(client.ctx, ptypes.DurationProto(duration), append(client.grpcCallOptions, grpcCallOption...)...)
+func (client *Client) DownloadNonLookupProfile(ctx context.Context, t NonLookupType, writer io.Writer) error {
+	stream, err := client.client.DownloadNonLookupProfile(ctx, &proto.NonLookupProfileType{Profile: lookupNonLookupType[t]}, client.callOptions...)
 	if err != nil {
 		return err
 	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
-}
-
-// Memory function will collect Memory profile in server
-func (client *Client) Memory(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.Memory(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
-}
-
-// Mutex function will collect Mutex profile in server
-func (client *Client) Mutex(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.Mutex(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
-}
-
-// Block function will collect Block profile in server
-func (client *Client) Block(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.Block(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
-}
-
-// ThreadCreate function will collect ThreadCreate profile in server
-func (client *Client) ThreadCreate(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.ThreadCreate(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
-}
-
-// GoRoutine function will collect GoRoutine profile in server
-func (client *Client) GoRoutine(grpcCallOption ...grpc.CallOption) error {
-	s, err := client.client.GoRoutine(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	if s.Code != StatusCode_OK {
-		return errUnknown
-	}
-	return nil
-}
-
-// Trace function will collect trace data in server and download it
-func (client *Client) Trace(duration time.Duration, writer io.Writer, grpcCallOption ...grpc.CallOption) error {
-	downloadClient, err := client.client.Trace(client.ctx, ptypes.DurationProto(duration), append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	err = receiveFileChunk(writer, downloadClient)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// Download function will download the collected profile data from server
-func (client *Client) Download(writer io.Writer, grpcCallOption ...grpc.CallOption) error {
-	downloadClient, err := client.client.Download(client.ctx, &empty.Empty{}, append(client.grpcCallOptions, grpcCallOption...)...)
-	if err != nil {
-		return err
-	}
-	err = receiveFileChunk(writer, downloadClient)
-	if err != nil {
-		return err
-	}
-	return nil
+	return receiveFileChunk(writer, stream)
 }

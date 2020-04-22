@@ -1,0 +1,77 @@
+syntax = "proto3";
+option go_package = ".;proto";
+package proto;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+
+message FileChunk {
+    bytes Content = 1;
+}
+
+enum ProfileVariable {
+    MemProfileRate = 0;
+    MutexProfileFraction = 1;
+    BlockProfileRate = 2;
+}
+
+enum LookupProfile {
+    profileTypeHeap = 0;
+    profileTypeMutex = 1;
+    profileTypeBlock = 2;
+    profileTypeThreadCreate = 3;
+    profileTypeGoRoutine = 4;
+}
+
+enum NonLookupProfile {
+    profileTypeCPU = 0;
+    profileTypeTrace = 1;
+}
+
+message StringType {
+    string Message = 1;
+}
+
+message LookupProfileType {
+    LookupProfile Profile = 1;
+}
+
+message NonLookupProfileType {
+    NonLookupProfile Profile = 1;
+}
+
+message SetProfileInputType {
+    ProfileVariable Variable = 1;
+    int32 Rate = 2;
+}
+
+message ResetProfileInputType {
+    ProfileVariable Variable = 1;
+}
+
+message LookupProfileInputType {
+    LookupProfile ProfileType = 1;
+    bool Keep = 2;
+}
+
+message NonLookupProfileInputType {
+    NonLookupProfile ProfileType = 1;
+    google.protobuf.Duration Duration = 2;
+    bool WaitForCompletion = 3;
+    bool Keep = 4;
+}
+
+service ProfileService {
+    rpc Ping(google.protobuf.Empty) returns (StringType);
+    rpc ClearProfileCache (google.protobuf.Empty) returns (google.protobuf.Empty);
+
+    rpc Set (SetProfileInputType) returns (google.protobuf.Empty);
+    rpc Reset (ResetProfileInputType) returns (google.protobuf.Empty);
+
+    rpc LookupProfile (LookupProfileInputType) returns (stream FileChunk);
+    rpc DownloadLookupProfile (LookupProfileType) returns (stream FileChunk);
+
+    rpc NonLookupProfile (NonLookupProfileInputType) returns (stream FileChunk);
+    rpc StopNonLookupProfile (NonLookupProfileType) returns (google.protobuf.Empty);
+    rpc DownloadNonLookupProfile (NonLookupProfileType) returns (stream FileChunk);
+}

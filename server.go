@@ -1,506 +1,363 @@
+//go:generate protoc -I proto/ proto/profile.proto --go_out=plugins=grpc:proto
 package profile
 
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
-	"os"
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
+	"sync"
 	"time"
 
+	"github.com/chanchal1987/grpc-profile/proto"
 	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/duration"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/google/pprof/profile"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
+	"gopkg.in/errgo.v2/fmt/errors"
 )
 
-func equalValueType(st1, st2 *profile.ValueType) bool {
-	return st1.Type == st2.Type && st1.Unit == st2.Unit
+var lookupStr = map[proto.LookupProfile]string{
+	proto.LookupProfile_profileTypeHeap:         "heap",
+	proto.LookupProfile_profileTypeMutex:        "mutex",
+	proto.LookupProfile_profileTypeBlock:        "block",
+	proto.LookupProfile_profileTypeThreadCreate: "threadcreate",
+	proto.LookupProfile_profileTypeGoRoutine:    "goroutine",
 }
 
-func sendFileChunk(reader io.Reader, stream interface{ Send(*FileChunk) error }) error {
-	for {
-		var b byte
-		_, err := reader.Read([]byte{b})
-		if err != nil {
-			if err == io.EOF {
-				break
-			} else {
-				return err
-			}
-		}
-		err = stream.Send(&FileChunk{Content: []byte{b}})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Server will start the grpc-profile server. This has to be called in the application where we want to run profiles.
 type Server struct {
-	Quite                   bool
-	Logger                  io.Writer
-	profiles                []*profile.Profile
-	listen                  net.Listener
-	server                  *grpc.Server
-	oldMemProfileRate       int
-	oldMutexProfileFraction int
-	grpcServerOptions       []grpc.ServerOption
+	lookupProfile    map[proto.LookupProfile]*profile.Profile
+	nonLookupProfile map[proto.NonLookupProfile]*profile.Profile
+	initVariable     map[proto.ProfileVariable]int
+	initializedVars  bool
+	variable         map[proto.ProfileVariable]int
+	profileRunning   bool
+	listen           net.Listener
+	server           *grpc.Server
+	serverOptions    []grpc.ServerOption
 }
 
-func (server *Server) log(format string, args ...interface{}) error {
-	if server.Quite {
-		return nil
-	}
-	_, err := fmt.Fprintf(server.Logger, "Profile: "+format+"\n", args...)
-	return err
-}
-
-func (server *Server) err(text string) error {
-	return errors.New("GRPC Profile Server Error: " + text)
-}
-
-func (server *Server) collectLookupProfile(ctx context.Context, lookupName string) error {
-	if prof := pprof.Lookup(lookupName); prof != nil {
-		var buf bytes.Buffer
-		err := prof.WriteTo(&buf, 0)
-		if err != nil {
-			return err
-		}
-		p, err := profile.Parse(&buf)
-		if err != nil {
-			return err
-		}
-		err = server.addProfile(ctx, p)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (server *Server) compatibleProfile(p *profile.Profile) bool {
-	if len(server.profiles) == 0 {
-		return true
-	}
-
-	if !equalValueType(server.profiles[0].PeriodType, p.PeriodType) {
-		_ = server.log("Incompatible period types %v and %v", server.profiles[0].PeriodType, p.PeriodType)
-		return false
-	}
-
-	if len(server.profiles[0].SampleType) != len(p.SampleType) {
-		_ = server.log("Incompatible sample types %v and %v", server.profiles[0].SampleType, p.SampleType)
-		return false
-	}
-
-	for i := range server.profiles[0].SampleType {
-		if !equalValueType(server.profiles[0].SampleType[i], p.SampleType[i]) {
-			_ = server.log("Incompatible sample types %v and %v", server.profiles[0].SampleType, p.SampleType)
-			return false
-		}
-	}
-	return true
-}
-
-func (server *Server) addProfile(context context.Context, p *profile.Profile) error {
-	if !server.compatibleProfile(p) {
-		err := server.log("Not compatible with previous profile(s). Clearing profile cache.")
-		if err != nil {
-			return err
-		}
-
-		_, err = server.ClearProfileCache(context, &empty.Empty{})
-		if err != nil {
-			return err
-		}
-	}
-
-	server.profiles = append(server.profiles, p)
-	return nil
-}
-
-// SetGRPCServerOption will set new GRPC Server option to GRPC Profile Server
-func (server *Server) SetGRPCServerOption(grpcServerOption grpc.ServerOption) {
-	if grpcServerOption == nil {
+func NewServer(options ...*ServerOption) (server *Server, err error) {
+	err = server.SetOptions(options...)
+	if err != nil {
 		return
 	}
-	server.grpcServerOptions = append(server.grpcServerOptions, grpcServerOption)
+	err = server.initVariables()
+	return
 }
 
-// AuthTypeServerInsecure will set insecure auth type to grpc server
-func AuthTypeServerInsecure() struct {
-	ServerOption grpc.ServerOption
-	Error        error
-} {
-	return struct {
-		ServerOption grpc.ServerOption
-		Error        error
-	}{}
-}
-
-// AuthTypeServerTLS will set TLS auth type to grpc server
-func AuthTypeServerTLS(certFile, keyFile string) struct {
-	ServerOption grpc.ServerOption
-	Error        error
-} {
-	cred, err := credentials.NewServerTLSFromFile(certFile, keyFile)
+func (server *Server) Start(serverAddress string) (addr *net.TCPAddr, err error) {
+	server.listen, err = net.Listen("tcp", serverAddress)
 	if err != nil {
-		return struct {
-			ServerOption grpc.ServerOption
-			Error        error
-		}{Error: err}
+		return
 	}
-	return struct {
-		ServerOption grpc.ServerOption
-		Error        error
-	}{ServerOption: grpc.Creds(cred)}
-}
-
-// NewServer method will create a new GRPC Profile Server instance
-func NewServer(logger io.Writer, authType struct {
-	ServerOption grpc.ServerOption
-	Error        error
-}, grpcServerOptions ...grpc.ServerOption) (*Server, error) {
-	server := Server{Logger: logger}
-
-	// Security
-	if authType.Error != nil {
-		return nil, authType.Error
-	}
-	server.SetGRPCServerOption(authType.ServerOption)
-
-	// Other dial options
-	for _, serverOption := range grpcServerOptions {
-		server.SetGRPCServerOption(serverOption)
-	}
-	return &server, nil
-}
-
-// Serve the GRPC Profile server
-func (server *Server) Serve(address string) error {
-	listen, err := net.Listen("tcp", address)
-	if err != nil {
-		return err
-	}
-	server.listen = listen
-
-	err = server.log("Server listening at: %s", server.listen.Addr().String())
-	if err != nil {
-		return err
-	}
-
-	server.server = grpc.NewServer(server.grpcServerOptions...)
-	RegisterProfileServiceServer(server.server, server)
+	addr = server.listen.Addr().(*net.TCPAddr)
+	server.server = grpc.NewServer(server.serverOptions...)
+	proto.RegisterProfileServiceServer(server.server, server)
 	reflection.Register(server.server)
 
-	// Serve the server in go-routine
 	go func() {
 		_ = server.server.Serve(server.listen)
 	}()
 
-	return nil
+	return
 }
 
-// Stop GRPC Profile server
-func (server *Server) Stop(writeLeftoverProfiles bool) error {
-	if writeLeftoverProfiles && len(server.profiles) > 0 {
-		pwd, err := os.Getwd()
-		if err != nil {
-			return err
-		}
-		tempFile, err := ioutil.TempFile(pwd, "leftover.server.*.pprof")
-		if err != nil {
-			return err
-		}
-		defer func() {
-			_ = tempFile.Close()
-		}()
-
-		buf, err := server.download()
-		if err != nil {
-			return err
-		}
-
-		_, err = tempFile.Write(buf.Bytes())
-		if err != nil {
-			return err
-		}
-	}
+func (server *Server) Stop() error {
 	server.server.Stop()
 	return server.listen.Close()
 }
 
-// ClearProfileCache will clear all cached profiles
-func (server *Server) ClearProfileCache(context.Context, *empty.Empty) (*Status, error) {
-	server.profiles = nil
-	return &Status{Code: StatusCode_OK}, nil
-}
-
-// SetMemProfileRate will set the rate of Memory Profiler
-func (server *Server) SetMemProfileRate(_ context.Context, rate *Rate) (*Status, error) {
-	if server.oldMemProfileRate == 0 {
-		server.oldMemProfileRate = runtime.MemProfileRate
+func (server *Server) SetOption(option *ServerOption) error {
+	if option == nil {
+		return nil
 	}
-	runtime.MemProfileRate = int(rate.Value)
-	return &Status{Code: StatusCode_OK}, nil
-}
-
-// SetMutexProfileFraction will set the mutex profile fraction
-func (server *Server) SetMutexProfileFraction(_ context.Context, rate *Rate) (*Status, error) {
-	if server.oldMutexProfileFraction == 0 {
-		server.oldMutexProfileFraction = runtime.SetMutexProfileFraction(int(rate.Value))
-	} else {
-		_ = runtime.SetMutexProfileFraction(int(rate.Value))
+	if option.error != nil {
+		return option.error
 	}
-	return &Status{Code: StatusCode_OK}, nil
+	server.serverOptions = append(server.serverOptions, option.option)
+	return nil
 }
 
-// SetBlockProfileRate will set the block profile rate
-func (server *Server) SetBlockProfileRate(_ context.Context, rate *Rate) (*Status, error) {
-	runtime.SetBlockProfileRate(int(rate.Value))
-	return &Status{Code: StatusCode_OK}, nil
-}
-
-// ResetMemProfileRate will set the memory profile rate to default value
-func (server *Server) ResetMemProfileRate(context.Context, *empty.Empty) (*Status, error) {
-	if server.oldMemProfileRate != 0 {
-		runtime.MemProfileRate = server.oldMemProfileRate
-	}
-	return &Status{Code: StatusCode_OK}, nil
-}
-
-// ResetMutexProfileFraction will set the mutex profile fraction to default value
-func (server *Server) ResetMutexProfileFraction(context.Context, *empty.Empty) (*Status, error) {
-	runtime.SetMutexProfileFraction(server.oldMutexProfileFraction)
-	return &Status{Code: StatusCode_OK}, nil
-}
-
-// ResetBlockProfileRate will set the block profile rate to default value
-func (server *Server) ResetBlockProfileRate(context.Context, *empty.Empty) (*Status, error) {
-	runtime.SetBlockProfileRate(0)
-	return &Status{Code: StatusCode_OK}, nil
-}
-
-// CPU function will collect CPU profile
-func (server *Server) CPU(ctx context.Context, duration *duration.Duration) (*Status, error) {
-	err := server.log("Enabling CPU profiling")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-
-	var buf bytes.Buffer
-	startTime := time.Now()
-	err = pprof.StartCPUProfile(&buf)
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-
-	d, err := ptypes.Duration(duration)
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-
-	endChan := time.After(d - time.Since(startTime))
-
-	select {
-	case <-endChan:
-		break
-	case <-ctx.Done():
-		err = server.log("CPU profiling terminated early")
+func (server *Server) SetOptions(options ...*ServerOption) (err error) {
+	for _, option := range options {
+		err = server.SetOptions(option)
 		if err != nil {
-			return &Status{Code: StatusCode_Failed}, err
+			return
 		}
-		break
 	}
-
-	pprof.StopCPUProfile()
-	err = server.log("Disabling CPU profiling")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-
-	p, err := profile.Parse(&buf)
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	err = server.addProfile(ctx, p)
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	return &Status{Code: StatusCode_OK}, nil
+	return
 }
 
-// Memory function will collect Memory profile
-func (server *Server) Memory(ctx context.Context, _ *empty.Empty) (*Status, error) {
-	if runtime.MemProfileRate == 0 {
-		return &Status{Code: StatusCode_Failed}, server.err("memory profiling is disabled")
+func (server *Server) initVariables() error {
+	if server.initializedVars {
+		return errors.New("variables are already initialized")
 	}
-	err := server.collectLookupProfile(ctx, "heap")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
+
+	if server.initVariable == nil {
+		server.variable = make(map[proto.ProfileVariable]int)
 	}
-	err = server.log("Memory profile collected")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	return &Status{Code: StatusCode_OK}, nil
+
+	server.initVariable[proto.ProfileVariable_MemProfileRate] = runtime.MemProfileRate
+
+	muFrac := runtime.SetMutexProfileFraction(0)
+	_ = runtime.SetMutexProfileFraction(muFrac)
+	server.initVariable[proto.ProfileVariable_MutexProfileFraction] = muFrac
+	server.initVariable[proto.ProfileVariable_BlockProfileRate] = 0
+
+	server.variable = server.initVariable
+	server.initializedVars = true
+	return nil
 }
 
-// Mutex function will collect Mutex profile
-func (server *Server) Mutex(ctx context.Context, _ *empty.Empty) (*Status, error) {
-	err := server.collectLookupProfile(ctx, "mutex")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	err = server.log("Mutex profile collected")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	return &Status{Code: StatusCode_OK}, nil
+type ServerOption struct {
+	option grpc.ServerOption
+	error  error
 }
 
-// Block function will collect Block profile
-func (server *Server) Block(ctx context.Context, _ *empty.Empty) (*Status, error) {
-	err := server.collectLookupProfile(ctx, "block")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	err = server.log("Block profile collected")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	return &Status{Code: StatusCode_OK}, nil
+func ServerAuthTypeInsecure() *ServerOption {
+	return nil
 }
 
-// ThreadCreate function will collect ThreadCreate profile
-func (server *Server) ThreadCreate(ctx context.Context, _ *empty.Empty) (*Status, error) {
-	err := server.collectLookupProfile(ctx, "threadcreate")
+func ServerAuthTypeTLS(certFile, keyFile string) *ServerOption {
+	cred, err := credentials.NewServerTLSFromFile(certFile, keyFile)
 	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
+		return &ServerOption{error: err}
 	}
-	err = server.log("Thread create profile collected")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	return &Status{Code: StatusCode_OK}, nil
+	return &ServerOption{option: grpc.Creds(cred)}
 }
 
-// GoRoutine function will collect GoRoutine profile
-func (server *Server) GoRoutine(ctx context.Context, _ *empty.Empty) (*Status, error) {
-	err := server.collectLookupProfile(ctx, "goroutine")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	err = server.log("Go routine profile collected")
-	if err != nil {
-		return &Status{Code: StatusCode_Failed}, err
-	}
-	return &Status{Code: StatusCode_OK}, nil
+type grpcStreamWriter struct {
+	Stream interface{ Send(*proto.FileChunk) error }
 }
 
-// Trace function will collect trace data and send it to client
-func (server *Server) Trace(duration *duration.Duration, stream ProfileService_TraceServer) error {
-	err := server.log("Enabling Trace")
-	if err != nil {
-		return err
+func (w *grpcStreamWriter) Write(bytes []byte) (n int, err error) {
+	for _, b := range bytes {
+		err = w.Stream.Send(&proto.FileChunk{Content: []byte{b}})
+		if err != nil {
+			return
+		}
+		n++
+	}
+	return
+}
+
+func (server *Server) Ping(context.Context, *empty.Empty) (*proto.StringType, error) {
+	return &proto.StringType{Message: "pong"}, nil
+}
+
+func (server *Server) ClearProfileCache(_ context.Context, _ *empty.Empty) (*empty.Empty, error) {
+	server.lookupProfile = nil
+	server.nonLookupProfile = nil
+	return &empty.Empty{}, nil
+}
+
+func (server *Server) Set(_ context.Context, inputType *proto.SetProfileInputType) (*empty.Empty, error) {
+	if !server.initializedVars {
+		return &empty.Empty{}, status.Error(codes.FailedPrecondition, "variables are not initialized yet")
 	}
 
-	var buf bytes.Buffer
+	server.variable[inputType.Variable] = int(inputType.Rate)
+	switch inputType.Variable {
+	case proto.ProfileVariable_MemProfileRate:
+		runtime.MemProfileRate = server.variable[inputType.Variable]
+	case proto.ProfileVariable_MutexProfileFraction:
+		_ = runtime.SetMutexProfileFraction(server.variable[inputType.Variable])
+	case proto.ProfileVariable_BlockProfileRate:
+		runtime.SetBlockProfileRate(server.variable[inputType.Variable])
+	}
+	return &empty.Empty{}, nil
+}
+
+func (server *Server) Reset(_ context.Context, inputType *proto.ResetProfileInputType) (*empty.Empty, error) {
+	if !server.initializedVars {
+		return &empty.Empty{}, status.Error(codes.FailedPrecondition, "variables are not initialized yet")
+	}
+
+	rate := server.initVariable[inputType.Variable]
+	server.variable[inputType.Variable] = rate
+	switch inputType.Variable {
+	case proto.ProfileVariable_MemProfileRate:
+		runtime.MemProfileRate = rate
+	case proto.ProfileVariable_MutexProfileFraction:
+		_ = runtime.SetMutexProfileFraction(rate)
+	case proto.ProfileVariable_BlockProfileRate:
+		runtime.SetBlockProfileRate(rate)
+	}
+	return &empty.Empty{}, nil
+}
+
+func (server *Server) LookupProfile(inputType *proto.LookupProfileInputType, profileServer proto.ProfileService_LookupProfileServer) (err error) {
+	prof := pprof.Lookup(lookupStr[inputType.ProfileType])
+	if prof == nil {
+		return
+	}
+
+	writer := grpcStreamWriter{profileServer}
+	if inputType.Keep {
+		var buf bytes.Buffer
+		err = prof.WriteTo(&buf, 0)
+		if err != nil {
+			return
+		}
+		_, err = writer.Write(buf.Bytes())
+		if err != nil {
+			return
+		}
+		var p *profile.Profile
+		p, err = profile.Parse(&buf)
+		if err != nil {
+			return
+		}
+		if server.lookupProfile == nil {
+			server.lookupProfile = make(map[proto.LookupProfile]*profile.Profile)
+		}
+		if _, ok := server.lookupProfile[inputType.ProfileType]; ok {
+			p, err = profile.Merge([]*profile.Profile{server.lookupProfile[inputType.ProfileType], p})
+			if err != nil {
+				return
+			}
+		}
+		server.lookupProfile[inputType.ProfileType] = p
+	} else {
+		err = prof.WriteTo(&writer, 0)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+func (server *Server) DownloadLookupProfile(profileType *proto.LookupProfileType, profileServer proto.ProfileService_DownloadLookupProfileServer) error {
+	var ok bool
+	var prof *profile.Profile
+	if server.lookupProfile[profileType.Profile] == nil {
+		ok = false
+	}
+	if ok {
+		prof, ok = server.lookupProfile[profileType.Profile]
+	}
+	if !ok {
+		return status.Error(codes.NotFound, "no profile data saved")
+	}
+
+	writer := grpcStreamWriter{profileServer}
+	return prof.Write(&writer)
+}
+
+func (server *Server) runNonLookup(ctx context.Context, startFunc func(io.Writer) error, stopFunc func(), duration time.Duration, waitForCompletion bool, writer io.Writer) error {
+	server.profileRunning = true
 	startTime := time.Now()
-	err = trace.Start(&buf)
+	err := startFunc(writer)
+	if err != nil {
+		return err
+	}
+	timeoutCtx, cancelFunf := context.WithTimeout(ctx, duration-time.Since(startTime))
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func(server *Server, ctx context.Context, stopFunc func(), cancelFunc context.CancelFunc) {
+		defer wg.Done()
+		<-ctx.Done()
+		stopFunc()
+		cancelFunc()
+		server.profileRunning = false
+	}(server, timeoutCtx, stopFunc, cancelFunf)
+	if waitForCompletion {
+		wg.Wait()
+	}
+	return nil
+}
+
+func (server *Server) NonLookupProfile(inputType *proto.NonLookupProfileInputType, profileServer proto.ProfileService_NonLookupProfileServer) error {
+	var startFunc func(io.Writer) error
+	var stopFunc func()
+
+	switch inputType.ProfileType {
+	case proto.NonLookupProfile_profileTypeCPU:
+		startFunc = pprof.StartCPUProfile
+		stopFunc = pprof.StopCPUProfile
+	case proto.NonLookupProfile_profileTypeTrace:
+		startFunc = trace.Start
+		stopFunc = trace.Stop
+	default:
+		return status.Error(codes.NotFound, "unknown profile type")
+	}
+
+	dur, err := ptypes.Duration(inputType.Duration)
 	if err != nil {
 		return err
 	}
 
-	d, err := ptypes.Duration(duration)
-	if err != nil {
-		return err
-	}
-
-	endChan := time.After(d - time.Since(startTime))
-
-	select {
-	case <-endChan:
-		break
-	case <-stream.Context().Done():
-		err = server.log("Trace terminated early")
+	writer := grpcStreamWriter{profileServer}
+	if inputType.Keep {
+		var buf bytes.Buffer
+		err := server.runNonLookup(profileServer.Context(), startFunc, stopFunc, dur, inputType.WaitForCompletion, &buf)
 		if err != nil {
 			return err
 		}
-		break
-	}
 
-	trace.Stop()
-	err = server.log("Disabling Trace")
-	if err != nil {
-		return err
-	}
+		_, err = writer.Write(buf.Bytes())
+		if err != nil {
+			return err
+		}
 
-	err = sendFileChunk(&buf, stream)
-	if err != nil {
-		return err
-	}
+		p, err := profile.Parse(&buf)
+		if err != nil {
+			return err
+		}
 
-	err = server.log("Sent trace to client")
-	if err != nil {
-		return err
+		if server.nonLookupProfile == nil {
+			server.nonLookupProfile = make(map[proto.NonLookupProfile]*profile.Profile)
+		}
+		if _, ok := server.nonLookupProfile[inputType.ProfileType]; ok {
+			p, err = profile.Merge([]*profile.Profile{server.nonLookupProfile[inputType.ProfileType], p})
+			if err != nil {
+				return err
+			}
+		}
+		server.nonLookupProfile[inputType.ProfileType] = p
+	} else {
+		err := server.runNonLookup(profileServer.Context(), startFunc, stopFunc, dur, inputType.WaitForCompletion, &writer)
+		if err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 
-func (server *Server) download() (*bytes.Buffer, error) {
-	// Stop profiling if not
-	trace.Stop()
-	pprof.StopCPUProfile()
-
-	var buf bytes.Buffer
-
-	p, err := profile.Merge(server.profiles)
-	if err != nil {
-		return nil, err
+func (server *Server) StopNonLookupProfile(_ context.Context, profileType *proto.NonLookupProfileType) (*empty.Empty, error) {
+	switch profileType.Profile {
+	case proto.NonLookupProfile_profileTypeCPU:
+		pprof.StopCPUProfile()
+	case proto.NonLookupProfile_profileTypeTrace:
+		trace.Stop()
+	default:
+		return &empty.Empty{}, status.Error(codes.NotFound, "unknown profile type")
 	}
-
-	err = p.Write(&buf)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = server.ClearProfileCache(context.Background(), &empty.Empty{})
-	if err != nil {
-		return nil, err
-	}
-
-	return &buf, nil
+	return &empty.Empty{}, nil
 }
 
-// Download function will send the collected profile data to client
-func (server *Server) Download(_ *empty.Empty, stream ProfileService_DownloadServer) error {
-	buf, err := server.download()
-	if err != nil {
-		return err
+func (server *Server) DownloadNonLookupProfile(profileType *proto.NonLookupProfileType, profileServer proto.ProfileService_DownloadNonLookupProfileServer) error {
+	var ok bool
+	var prof *profile.Profile
+	if server.nonLookupProfile[profileType.Profile] == nil {
+		ok = false
+	}
+	if ok {
+		prof, ok = server.nonLookupProfile[profileType.Profile]
+	}
+	if !ok {
+		return status.Error(codes.NotFound, "no profile data saved")
 	}
 
-	err = sendFileChunk(buf, stream)
-	if err != nil {
-		return err
-	}
-
-	err = server.log("Sent profile data to client")
-	if err != nil {
-		return err
-	}
-
-	return nil
+	writer := grpcStreamWriter{profileServer}
+	return prof.Write(&writer)
 }
