@@ -48,6 +48,7 @@ type Server struct {
 
 // NewServer function will create a GRPC Profile Server instance
 func NewServer(options ...*ServerOption) (server *Server, err error) {
+	server = &Server{}
 	err = server.SetOptions(options...)
 	if err != nil {
 		return

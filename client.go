@@ -180,6 +180,7 @@ func DialAuthTypeTLS(certFile string) *DialOption {
 
 // NewClient function will create a GRPC Profile Client instance
 func NewClient(ctx context.Context, serverAddress string, options ...*DialOption) (client *Client, err error) {
+	client = &Client{}
 	_ = client.SetDialOption(DialAuthTypeInsecure()) // Default insecure security
 
 	err = client.SetDialOptions(options...)
