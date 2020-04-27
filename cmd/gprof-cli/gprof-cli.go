@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"runtime"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/abiosoft/ishell"
 	profile "github.com/chanchal1987/grpc-profile"
+	"github.com/chanchal1987/grpc-profile/agent"
 )
 
 type connectionStatus struct {
@@ -67,7 +69,7 @@ var nonLookupClientMap = map[string]profile.NonLookupType{
 func commandConnect(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "connect",
-		Aliases:  []string{"c"},
+		Aliases:  []string{"conn"},
 		Help:     "Connect to a remote server",
 		LongHelp: "Connect to a server and port where GRPC profile server is running",
 		Func: func(c *ishell.Context) {
@@ -87,10 +89,51 @@ func commandConnect(ctx context.Context, conn *connectionStatus, err error) *ish
 	}
 }
 
+func commandDisconnect(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
+	return &ishell.Cmd{
+		Name:     "disconnect",
+		Help:     "Disconnect from remote server",
+		LongHelp: "Disconnect from remote server",
+		Func: func(c *ishell.Context) {
+			conn.client = nil
+			conn.serverAddress = ""
+			conn.Connected = false
+		},
+	}
+}
+
+func commandInfo(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
+	return &ishell.Cmd{
+		Name:     "info",
+		Aliases:  []string{"i"},
+		Help:     "Information about remote server",
+		LongHelp: "Information about remote server",
+		Func: func(c *ishell.Context) {
+			if !conn.Connected {
+				c.Err(errors.New("not connected. Please use \"connect\" command to connect"))
+				return
+			}
+			info, err := conn.client.GetInfo(ctx)
+			if err != nil {
+				c.Err(err)
+				return
+			}
+
+			infoJSON, err := json.MarshalIndent(info, "", "  ")
+			if err != nil {
+				c.Err(err)
+				return
+			}
+
+			c.Printf("Information about remote server: %s\n", conn.serverAddress)
+			c.Println(string(infoJSON))
+		},
+	}
+}
+
 func commandSet(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "set",
-		Aliases:  []string{"s"},
 		Help:     "Set GRPC Profile variable in remote server",
 		LongHelp: "Set GRPC Profile variable in remote server",
 		Func: func(c *ishell.Context) {
@@ -124,50 +167,12 @@ func commandSet(ctx context.Context, conn *connectionStatus, err error) *ishell.
 				}
 			}
 
-			err = conn.client.Set(ctx, variable, rate)
+			val, err := conn.client.Set(ctx, variable, rate)
 			if err != nil {
 				c.Err(err)
-			}
-		},
-		Completer: func(args []string) []string {
-			if args == nil {
-				return profVars
-			}
-			return nil
-		},
-	}
-}
-
-func commandReset(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
-	return &ishell.Cmd{
-		Name:     "reset",
-		Aliases:  []string{"r"},
-		Help:     "Reset GRPC Profile variable in remote server",
-		LongHelp: "Reset GRPC Profile variable in remote server",
-		Func: func(c *ishell.Context) {
-			if !conn.Connected {
-				c.Err(errors.New("not connected. Please use \"connect\" command to connect"))
 				return
 			}
-
-			var variable profile.Variable
-
-			if len(c.Args) == 1 {
-				var ok bool
-				variable, ok = variableMap[c.Args[0]]
-				if !ok {
-					c.Err(errors.New("unknown variable"))
-					return
-				}
-			} else {
-				variable = profile.Variable(c.MultiChoice(profVars, "Which Variable?"))
-				c.Print("Rate? ")
-			}
-
-			err = conn.client.Reset(ctx, variable)
-			if err != nil {
-				c.Err(err)
-			}
+			c.Printf("Previous value: %d\n", val)
 		},
 		Completer: func(args []string) []string {
 			if args == nil {
@@ -181,7 +186,7 @@ func commandReset(ctx context.Context, conn *connectionStatus, err error) *ishel
 func commandProfile(ctx context.Context, conn *connectionStatus, err error) *ishell.Cmd {
 	return &ishell.Cmd{
 		Name:     "profile",
-		Aliases:  []string{"p"},
+		Aliases:  []string{"prof"},
 		Help:     "Collect pprof from remote server",
 		LongHelp: "Collect pprof from remote server",
 		Func: func(c *ishell.Context) {
@@ -250,13 +255,13 @@ func commandDummyServer(ctx context.Context, conn *connectionStatus, err error) 
 		Help:     "Run dummy server for testing",
 		LongHelp: "Run dummy server for testing",
 		Func: func(c *ishell.Context) {
-			server, err := profile.NewServer()
+			server, err := agent.NewAgent()
 			if err != nil {
 				c.Err(err)
 				return
 			}
 
-			go func(server *profile.Server) {
+			go func(server *agent.Agent) {
 				done := make(chan bool)
 				defer func() {
 					c.Println("Dummy server is stopping...")
@@ -301,8 +306,9 @@ func main() {
 	shell.Println("GRPC Profile Interactive Shell")
 
 	shell.AddCmd(commandConnect(ctx, &conn, err))
+	shell.AddCmd(commandDisconnect(ctx, &conn, err))
+	shell.AddCmd(commandInfo(ctx, &conn, err))
 	shell.AddCmd(commandSet(ctx, &conn, err))
-	shell.AddCmd(commandReset(ctx, &conn, err))
 	shell.AddCmd(commandProfile(ctx, &conn, err))
 	shell.AddCmd(commandDummyServer(ctx, &conn, err))
 

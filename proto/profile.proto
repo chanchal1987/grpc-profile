@@ -3,6 +3,7 @@ option go_package = ".;proto";
 package proto;
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 
 message FileChunk {
@@ -11,8 +12,9 @@ message FileChunk {
 
 enum ProfileVariable {
     MemProfileRate = 0;
-    MutexProfileFraction = 1;
-    BlockProfileRate = 2;
+    CPUProfileRate = 1;
+    MutexProfileFraction = 2;
+    BlockProfileRate = 3;
 }
 
 enum LookupProfile {
@@ -30,6 +32,10 @@ enum NonLookupProfile {
 
 message StringType {
     string Message = 1;
+}
+
+message IntType {
+    int32 Value = 1;
 }
 
 message LookupProfileType {
@@ -51,27 +57,108 @@ message ResetProfileInputType {
 
 message LookupProfileInputType {
     LookupProfile ProfileType = 1;
-    bool Keep = 2;
 }
 
 message NonLookupProfileInputType {
     NonLookupProfile ProfileType = 1;
     google.protobuf.Duration Duration = 2;
-    bool WaitForCompletion = 3;
-    bool Keep = 4;
+}
+
+message MemStats {
+    uint64 Alloc = 1;
+    uint64 TotalAlloc = 2;
+    uint64 Sys = 3;
+    uint64 Lookups = 4;
+    uint64 Mallocs = 5;
+    uint64 Frees = 6;
+    uint64 HeapAlloc = 7;
+    uint64 HeapSys = 8;
+    uint64 HeapIdle = 9;
+    uint64 HeapInuse = 10;
+    uint64 HeapReleased = 11;
+    uint64 HeapObjects = 12;
+    uint64 StackInuse = 13;
+    uint64 StackSys = 14;
+    uint64 MSpanInuse = 15;
+    uint64 MSpanSys = 16;
+    uint64 MCacheInuse = 17;
+    uint64 MCacheSys = 18;
+    uint64 BuckHashSys = 19;
+    uint64 GCSys = 20;
+    uint64 OtherSys = 21;
+    uint64 NextGC = 22;
+    google.protobuf.Timestamp LastGC =  23;
+    google.protobuf.Duration PauseTotalNs = 24;
+    google.protobuf.Timestamp LastPause =  25;
+    uint32 NumGC = 26;
+    uint32 NumForcedGC = 27;
+}
+
+message FileInfo {
+    string Name = 1;
+    int64 Size = 2;
+    uint32 Mode = 3;
+    google.protobuf.Timestamp ModeTime = 4;
+}
+
+message IDName {
+    int32 ID = 1;
+    string Name = 2;
+}
+
+message ProcessStats {
+    repeated string Environ = 1;
+    string Executable = 2;
+    FileInfo ExecutableLStat = 3;
+    FileInfo ExecutableStat = 4;
+    IDName UID = 5;
+    IDName GID = 6;
+    IDName EUID = 7;
+    IDName EGID = 8;
+    repeated IDName Groups = 9;
+    int32 PageSize = 10;
+    int32 PID = 11;
+    int32 PPID = 12;
+    string WD = 13;
+    string Hostname = 14;
+    string UserCacheDir = 15;
+    string UserConfigDir = 16;
+    string UserHomeDir = 17;
+}
+
+message InfoType {
+    string GOOS = 1;
+    string GOARCH = 2;
+    int32 GOMAXPROCS = 3;
+    int32 NumCPU = 4;
+    int32 NumCgoCall = 5;
+    int32 NumGoroutine = 6;
+    string Version = 7;
+    ProcessStats ProcessStats = 8;
+    MemStats MemStats = 9;
+    int32 MemProfileRate = 10;
 }
 
 service ProfileService {
+    // Test
     rpc Ping(google.protobuf.Empty) returns (StringType);
-    rpc ClearProfileCache (google.protobuf.Empty) returns (google.protobuf.Empty);
 
-    rpc Set (SetProfileInputType) returns (google.protobuf.Empty);
-    rpc Reset (ResetProfileInputType) returns (google.protobuf.Empty);
+    // Info
+    rpc GetInfo(google.protobuf.Empty) returns (InfoType);
 
+    // BinaryDump
+    rpc BinaryDump(google.protobuf.Empty) returns (stream FileChunk);
+
+    // Variable
+    rpc Set (SetProfileInputType) returns (IntType);
+
+    // GC
+    rpc GC(google.protobuf.Empty) returns (google.protobuf.Empty);
+
+    // Lookup Profile
     rpc LookupProfile (LookupProfileInputType) returns (stream FileChunk);
-    rpc DownloadLookupProfile (LookupProfileType) returns (stream FileChunk);
 
+    // Non Lookup Profile
     rpc NonLookupProfile (NonLookupProfileInputType) returns (stream FileChunk);
     rpc StopNonLookupProfile (NonLookupProfileType) returns (google.protobuf.Empty);
-    rpc DownloadNonLookupProfile (NonLookupProfileType) returns (stream FileChunk);
 }
