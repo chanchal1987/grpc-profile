@@ -44,7 +44,7 @@ var (
 
 // Execute rootCmd
 func Execute(version, build string) error {
-	if version != "" && build != "" {
+	if version != "-" && build != "-" {
 		rootCmd.Version = version + ".b" + build
 	}
 	return rootCmd.Execute()
