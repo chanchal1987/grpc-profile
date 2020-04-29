@@ -11,14 +11,15 @@ VERSION=0.0.2
 BUILD=`git rev-parse HEAD`
 PLATFORMS=darwin freebsd linux openbsd windows
 ARCHITECTURES=386 amd64 arm arm64
-TARGET=${ROOT_DIR}/bin
+TARGET=$(if $(GOBIN),$(GOBIN),${ROOT_DIR}/bin)
+#TARGET=${ROOT_DIR}/bin
 
 # Setup linker flags option for build that interoperate with variable names in src code
 LDFLAGS=-ldflags "-X main.Version=${VERSION} -X main.Build=${BUILD} -s -w"
 
 default: build
 
-all: clean build_all install
+all: clean build install
 
 build:
 	cd ${MAIN}; go build ${LDFLAGS} -o ${TARGET}/${BINARY}
