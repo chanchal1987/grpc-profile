@@ -38,7 +38,7 @@ To configure your bash shell to load completions for each session add to your ba
 		} else if len(args) == 0 {
 			shell = getShell()
 		} else {
-			return invalidArgumentsError
+			return errInvalidArguments
 		}
 		defer writer.Close()
 

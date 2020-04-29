@@ -23,7 +23,7 @@ var (
 
 	defaultcfgFile = filepath.Join(home, "."+applName+".yaml")
 
-	invalidArgumentsError = errors.New("invalid argument(s)")
+	errInvalidArguments = errors.New("invalid argument(s)")
 
 	cfgFile string
 	rootCmd = &cobra.Command{

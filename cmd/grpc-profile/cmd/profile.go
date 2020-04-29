@@ -52,7 +52,7 @@ var (
 				case "goroutine", "go-routine":
 					prof = profile.GoRoutineType
 				default:
-					return invalidArgumentsError
+					return errInvalidArguments
 				}
 				return client.LookupProfile(cmd.Context(), prof, file)
 			} else if len(args) == 3 {
@@ -72,11 +72,11 @@ var (
 				case "trace":
 					prof = profile.TraceType
 				default:
-					return invalidArgumentsError
+					return errInvalidArguments
 				}
 				return client.NonLookupProfile(cmd.Context(), prof, dur, file)
 			}
-			return invalidArgumentsError
+			return errInvalidArguments
 		},
 	}
 )

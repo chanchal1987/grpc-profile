@@ -18,7 +18,7 @@ var (
 		ValidArgs: []string{"cpu", "trace"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return invalidArgumentsError
+				return errInvalidArguments
 			}
 			var prof profile.NonLookupType
 			switch args[0] {
@@ -27,7 +27,7 @@ var (
 			case "trace":
 				prof = profile.TraceType
 			default:
-				return invalidArgumentsError
+				return errInvalidArguments
 			}
 			return client.StopNonLookupProfile(cmd.Context(), prof)
 		},

@@ -16,7 +16,7 @@ var (
 		PreRunE: connect,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return invalidArgumentsError
+				return errInvalidArguments
 			}
 			return client.GC(cmd.Context())
 		},

@@ -41,7 +41,7 @@ var (
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 2 {
-				return invalidArgumentsError
+				return errInvalidArguments
 			}
 			val, ok := setList[args[0]]
 			if !ok {

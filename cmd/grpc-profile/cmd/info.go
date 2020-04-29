@@ -19,7 +19,7 @@ var (
 		PreRunE: connect,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return invalidArgumentsError
+				return errInvalidArguments
 			}
 			info, err := client.GetInfo(cmd.Context())
 			if err != nil {

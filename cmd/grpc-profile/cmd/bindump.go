@@ -18,7 +18,7 @@ var (
 		PreRunE: connect,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return invalidArgumentsError
+				return errInvalidArguments
 			}
 			file, err := os.Create(args[0])
 			if err != nil {
