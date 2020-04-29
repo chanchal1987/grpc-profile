@@ -69,9 +69,8 @@ func (agent *Agent) Start(serverAddress string) (addr *net.TCPAddr, err error) {
 }
 
 // Stop function will stop GRPC Profile Agent
-func (agent *Agent) Stop() error {
+func (agent *Agent) Stop() {
 	agent.server.Stop()
-	return agent.listen.Close()
 }
 
 // SetOption function will be used to set `ServerOption` to GRPC Profile Agent

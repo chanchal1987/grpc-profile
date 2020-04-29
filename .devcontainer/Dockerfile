@@ -22,7 +22,7 @@ RUN apt-get update \
     && apt-get -y install --no-install-recommends apt-utils dialog 2>&1 \
     #
     # Verify git, process tools, lsb-release (common in install instructions for CLIs) installed
-    && apt-get -y install git openssh-client less iproute2 procps lsb-release unzip \
+    && apt-get -y install git openssh-client less iproute2 procps lsb-release graphviz bash-completion unzip \
     # Install Protoc
     && cd /tmp \
     && curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v3.7.1/$PROTOC_ZIP \
@@ -58,6 +58,7 @@ RUN apt-get update \
         github.com/go-delve/delve/cmd/dlv@latest 2>&1 \
         github.com/golang/protobuf/protoc-gen-go@latest \
         google.golang.org/grpc@latest \
+        github.com/google/pprof \
     #
     # Build Go tools w/o module support
     && GOPATH=/tmp/gotools go get -v github.com/alecthomas/gometalinter 2>&1 \

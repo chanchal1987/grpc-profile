@@ -88,6 +88,7 @@ const (
 
 var lookupVariable = map[Variable]proto.ProfileVariable{
 	MemProfRate:          proto.ProfileVariable_MemProfileRate,
+	CPUProfRate:          proto.ProfileVariable_CPUProfileRate,
 	MutexProfileFraction: proto.ProfileVariable_MutexProfileFraction,
 	BlockProfileRate:     proto.ProfileVariable_BlockProfileRate,
 }
@@ -465,7 +466,7 @@ func (client *Client) GC(ctx context.Context) error {
 }
 
 // LookupProfile will run a profile for lookup pprof type
-func (client *Client) LookupProfile(ctx context.Context, t LookupType, writer io.Writer, keep bool) error {
+func (client *Client) LookupProfile(ctx context.Context, t LookupType, writer io.Writer) error {
 	stream, err := client.client.LookupProfile(ctx, &proto.LookupProfileInputType{ProfileType: lookupLookupType[t]}, client.callOptions...)
 	if err != nil {
 		return err
@@ -474,7 +475,7 @@ func (client *Client) LookupProfile(ctx context.Context, t LookupType, writer io
 }
 
 // NonLookupProfile will run a profile for non lookup pprof type
-func (client *Client) NonLookupProfile(ctx context.Context, t NonLookupType, d time.Duration, writer io.Writer, wait, keep bool) error {
+func (client *Client) NonLookupProfile(ctx context.Context, t NonLookupType, d time.Duration, writer io.Writer) error {
 	stream, err := client.client.NonLookupProfile(ctx, &proto.NonLookupProfileInputType{ProfileType: lookupNonLookupType[t], Duration: ptypes.DurationProto(d)}, client.callOptions...)
 	if err != nil {
 		return err

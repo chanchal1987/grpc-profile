@@ -5,8 +5,8 @@ K := $(foreach exec,$(EXECUTABLES),\
 
 ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 
-BINARY=gprof
-MAIN=cli/cli.go
+BINARY=grpc-profile
+MAIN=cmd/grpc-profile
 VERSION=0.0.2
 BUILD=`git rev-parse HEAD`
 PLATFORMS=darwin freebsd linux openbsd windows
@@ -14,18 +14,18 @@ ARCHITECTURES=386 amd64 arm arm64
 TARGET=${ROOT_DIR}/bin
 
 # Setup linker flags option for build that interoperate with variable names in src code
-LDFLAGS=-ldflags "-X main.Version=${VERSION} -X main.Build=${BUILD}"
+LDFLAGS=-ldflags "-X main.Version=${VERSION} -X main.Build=${BUILD} -s -w"
 
 default: build
 
 all: clean build_all install
 
 build:
-	go build ${LDFLAGS} -o ${TARGET}/${BINARY} ${MAIN}
+	cd ${MAIN}; go build ${LDFLAGS} -o ${TARGET}/${BINARY}
 
 build_all:
 	$(foreach GOOS, $(PLATFORMS),\
-	$(foreach GOARCH, $(ARCHITECTURES), $(shell export GOOS=$(GOOS); export GOARCH=$(GOARCH); go build -v -o ${TARGET}/$(BINARY)-$(GOOS)-$(GOARCH) ${MAIN})))
+	$(foreach GOARCH, $(ARCHITECTURES), $(shell export GOOS=$(GOOS); export GOARCH=$(GOARCH); cd ${MAIN}; go build -v -o ${TARGET}/$(BINARY)-$(GOOS)-$(GOARCH))))
 
 install:
 	go install ${LDFLAGS}
