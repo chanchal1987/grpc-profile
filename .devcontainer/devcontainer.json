@@ -21,19 +21,19 @@
 		"[go]": {
 			"editor.formatOnSave": true,
 			"editor.codeActionsOnSave": {
-				"source.organizeImports": true,
+				"source.organizeImports": true
 			},
-			"editor.snippetSuggestions": "none",
+			"editor.snippetSuggestions": "none"
 		},
 		"[go.mod]": {
 			"editor.formatOnSave": true,
 			"editor.codeActionsOnSave": {
-				"source.organizeImports": true,
-			},
+				"source.organizeImports": true
+			}
 		},
 		"gopls": {
 			"usePlaceholders": true,
-			"staticcheck": false,
+			"staticcheck": false
 		}
 	},
 	"extensions": [
@@ -45,6 +45,6 @@
 	"remoteUser": "developer",
 	"remoteEnv": {
 		"GOBIN": "${containerEnv:GOPATH}/bin",
-		"PATH": "${containerEnv:PATH}:${containerEnv:GOPATH}/bin",
+		"PATH": "${containerEnv:PATH}:${containerEnv:GOPATH}/bin"
 	}
 }

@@ -138,11 +138,11 @@ func (agent *Agent) Ping(context.Context, *empty.Empty) (*proto.StringType, erro
 }
 
 func getUserName(id int) (string, error) {
-	user, err := user.LookupId(strconv.Itoa(id))
+	u, err := user.LookupId(strconv.Itoa(id))
 	if err != nil {
 		return "", err
 	}
-	return user.Name, nil
+	return u.Name, nil
 }
 
 func getGroupName(id int) (string, error) {
@@ -156,20 +156,43 @@ func getGroupName(id int) (string, error) {
 // GetInfo function will get the current information about the server.
 func (agent *Agent) GetInfo(context.Context, *empty.Empty) (*proto.InfoType, error) {
 	var executableLStat, executableStat os.FileInfo
+	var executableLStatName, executableStatName string
+	var executableLStatSize, executableStatSize int64
+	var executableLStatMode, executableStatMode os.FileMode
 	var executableLStatModTime, executableStatModTime *timestamppb.Timestamp
+
 	executable, err := os.Executable()
 	if err != nil {
 		executable = "unknown"
 	} else {
-		executableLStat, err = os.Lstat(executable)
-		if err != nil {
-			executableLStatModTime, _ = ptypes.TimestampProto(executableLStat.ModTime())
-		}
+		executableLStat, _ = os.Lstat(executable)
 		executableStat, _ = os.Stat(executable)
-		if err != nil {
-			executableStatModTime, _ = ptypes.TimestampProto(executableStat.ModTime())
-		}
 	}
+
+	if executableLStat == nil {
+		executableLStatName = ""
+		executableLStatSize = 0
+		executableLStatMode = 0
+		executableLStatModTime, _ = ptypes.TimestampProto(time.Unix(0, 0))
+	} else {
+		executableLStatName = executableLStat.Name()
+		executableLStatSize = executableLStat.Size()
+		executableLStatMode = executableLStat.Mode()
+		executableLStatModTime, _ = ptypes.TimestampProto(executableLStat.ModTime())
+	}
+
+	if executableStat == nil {
+		executableStatName = ""
+		executableStatSize = 0
+		executableStatMode = 0
+		executableStatModTime, _ = ptypes.TimestampProto(time.Unix(0, 0))
+	} else {
+		executableStatName = executableStat.Name()
+		executableStatSize = executableStat.Size()
+		executableStatMode = executableStat.Mode()
+		executableStatModTime, _ = ptypes.TimestampProto(executableStat.ModTime())
+	}
+
 	uid := os.Getuid()
 	uidName, err := getUserName(uid)
 	if err != nil {
@@ -249,15 +272,15 @@ func (agent *Agent) GetInfo(context.Context, *empty.Empty) (*proto.InfoType, err
 			Environ:    os.Environ(),
 			Executable: executable,
 			ExecutableLStat: &proto.FileInfo{
-				Name:     executableLStat.Name(),
-				Size:     executableLStat.Size(),
-				Mode:     uint32(executableLStat.Mode()),
+				Name:     executableLStatName,
+				Size:     executableLStatSize,
+				Mode:     uint32(executableLStatMode),
 				ModeTime: executableLStatModTime,
 			},
 			ExecutableStat: &proto.FileInfo{
-				Name:     executableStat.Name(),
-				Size:     executableStat.Size(),
-				Mode:     uint32(executableStat.Mode()),
+				Name:     executableStatName,
+				Size:     executableStatSize,
+				Mode:     uint32(executableStatMode),
 				ModeTime: executableStatModTime,
 			},
 			UID: &proto.IDName{
@@ -320,19 +343,23 @@ func (agent *Agent) GetInfo(context.Context, *empty.Empty) (*proto.InfoType, err
 }
 
 // BinaryDump function get the dump of the current binary
-func (agent *Agent) BinaryDump(_ *empty.Empty, profileServer proto.ProfileService_BinaryDumpServer) error {
-	path, err := os.Executable()
+func (agent *Agent) BinaryDump(_ *empty.Empty, profileServer proto.ProfileService_BinaryDumpServer) (err error) {
+	var path string
+	path, err = os.Executable()
 	if err != nil {
-		return err
+		return
 	}
-	f, err := os.Open(path)
+	var f *os.File
+	f, err = os.Open(path)
 	if err != nil {
-		return err
+		return
 	}
-	defer f.Close()
+	defer func() {
+		err = f.Close()
+	}()
 
 	_, err = bufio.NewReader(f).WriteTo(&grpcStreamWriter{profileServer})
-	return err
+	return
 }
 
 // Set function will set the GRPC Profile Variable

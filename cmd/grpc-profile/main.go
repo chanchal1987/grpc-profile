@@ -9,9 +9,9 @@ import (
 
 var (
 	// Version number
-	Version string = "-"
+	Version = "-"
 	// Build string
-	Build string = "-"
+	Build = "-"
 )
 
 func main() {

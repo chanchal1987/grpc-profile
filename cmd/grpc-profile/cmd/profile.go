@@ -21,24 +21,27 @@ var (
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			if len(args) == 0 {
 				return []string{
-					"heap",
+					"heap", "memory",
 					"mutex",
 					"block",
-					"threadcreate",
-					"goroutine",
+					"threadcreate", "thread-create",
+					"goroutine", "go-routine",
 					"cpu",
 					"trace",
 				}, cobra.ShellCompDirectiveNoFileComp
 			}
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			if len(args) == 2 {
-				file, err := os.Create(args[1])
+				var file *os.File
+				file, err = os.Create(args[1])
 				if err != nil {
-					return err
+					return
 				}
-				defer file.Close()
+				defer func() {
+					err = file.Close()
+				}()
 				var prof profile.LookupType
 				switch args[0] {
 				case "heap", "memory":
@@ -56,15 +59,19 @@ var (
 				}
 				return client.LookupProfile(cmd.Context(), prof, file)
 			} else if len(args) == 3 {
-				dur, err := time.ParseDuration(args[1])
+				var dur time.Duration
+				dur, err = time.ParseDuration(args[1])
 				if err != nil {
-					return err
+					return
 				}
-				file, err := os.Create(args[2])
+				var file *os.File
+				file, err = os.Create(args[2])
 				if err != nil {
-					return err
+					return
 				}
-				defer file.Close()
+				defer func() {
+					err = file.Close()
+				}()
 				var prof profile.NonLookupType
 				switch args[0] {
 				case "cpu":

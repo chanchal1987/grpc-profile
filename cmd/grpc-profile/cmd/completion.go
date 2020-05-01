@@ -23,15 +23,14 @@ To configure your bash shell to load completions for each session add to your ba
 # ~/.bashrc or ~/.profile
 . <(` + applName + ` completion bash)
 `,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (err error) {
 		var shell string
 		writer := os.Stdout
 		if len(args) == 2 {
 			shell = args[0]
-			var err error
 			writer, err = os.Create(args[1])
 			if err != nil {
-				return err
+				return
 			}
 		} else if len(args) == 1 {
 			shell = args[0]
@@ -40,7 +39,9 @@ To configure your bash shell to load completions for each session add to your ba
 		} else {
 			return errInvalidArguments
 		}
-		defer writer.Close()
+		defer func() {
+			err = writer.Close()
+		}()
 
 		switch shell {
 		case "bash":

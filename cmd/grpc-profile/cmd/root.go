@@ -94,7 +94,7 @@ func initConfig() {
 	}
 }
 
-func connect(cmd *cobra.Command, args []string) error {
+func connect(cmd *cobra.Command, _ []string) error {
 	address := viper.GetString("server")
 	cert := viper.GetString("cert")
 	if address == "" {
