@@ -69,12 +69,11 @@ RUN apt-get update \
     && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME \
     # Setup github fingerprint
     && ( \
-      h=`getent passwd $USERNAME | cut -d: -f6` \
-      && mkdir $h/.ssh \
-      && ssh-keyscan -H github.com >> $h/.ssh/known_hosts \
-      && chown -R $USERNAME:$USERNAME $h/.ssh \
-      && chmod 700 $h/.ssh \
-      && chmod 644 $h/.ssh/known_hosts \
+      mkdir `getent passwd $USERNAME | cut -d: -f6`/.ssh \
+      && ssh-keyscan -H github.com >> `getent passwd $USERNAME | cut -d: -f6`/.ssh/known_hosts \
+      && chown -R $USERNAME:$USERNAME `getent passwd $USERNAME | cut -d: -f6`/.ssh \
+      && chmod 700 `getent passwd $USERNAME | cut -d: -f6`/.ssh \
+      && chmod 644 `getent passwd $USERNAME | cut -d: -f6`/.ssh/known_hosts \
     ) \
     # [Optional] Add sudo support
     && apt-get install -y sudo \
