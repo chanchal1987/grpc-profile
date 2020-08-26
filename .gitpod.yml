@@ -1,0 +1,7 @@
+image:
+  file: .devcontainer/Dockerfile
+
+vscode:
+  extensions:
+    - zxh404.vscode-proto3@0.4.2:ZnPmyF/Pb8AIWeCqc83gPw==
+    - eamodio.gitlens@10.2.1:WIWu3zHU4VPT8r/v866LUw==
